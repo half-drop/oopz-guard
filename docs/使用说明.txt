@@ -1,61 +1,56 @@
-OopzGuard 0.1.1 实验版
-仅适配 Oopz 0.88.41 的已调查快照 / Windows x64
+OopzGuard v0.1.2 正式版
+Guard 系列：Windows Oopz 去广告与 OBS 窗口过滤工具
 
 兼容范围
-本 DLL 只支持原始 data\app.so 大小为 31,851,424 字节且 SHA-256 为：
+Windows x64，仅支持 Oopz 0.88.41 的指定原始 data\app.so。
+大小必须为 31,851,424 字节，SHA256 必须为：
 8384ee1a0a3c39194755034328c34ec9dc1f76842d38144cc78b43c3153cc8aa
-仅版本号相同不代表文件一定匹配。
-2026-10-11 调查时官网分发安装包名称为 1.4.6.1；本 DLL 未适配或验证该版本及其他新版。
-文件不匹配、临时副本准备失败时，保留原快照与原窗口查询行为。
+仅版本号相同不代表兼容。当前官网新版及其他版本尚未适配、验证。
+文件不匹配或临时副本准备失败时，保留原快照与原窗口查询。
 
 安装
-1. 从系统托盘完全退出 Oopz。
-2. 将发布包中的 dwmapi.dll 放到 oopz.exe 所在目录。
-   常见安装目录为 %LOCALAPPDATA%\oopz；可将此路径输入资源管理器地址栏。
-   自定义安装时，以实际 oopz.exe 所在目录为准。
-3. 重新启动 Oopz。默认开启广告处理和 OBS 窗口过滤，只需一个 DLL。
-如果目录中已经存在 dwmapi.dll，不要覆盖；先确认现有文件用途。
-不要把 DLL 放进 Windows 系统目录，也不要替换 Oopz 原有程序或数据文件。
-
-处理范围
-广告处理在临时快照副本中等长修改五处 Dart 字符串，并更新对应字符串哈希：
-- /uni/advertisement/v1/list
-- /advertisement/v2
-- advertisementBannerList
-- adBanner
-- adSection
-两条路径用于让对应广告请求失败；三个字段名用于让对应发现页广告字段不被读取。
-不承诺消除所有推广内容；请求失败处理、其他接口、运行时状态可能影响结果。
-
-OBS 过滤只影响加载本 DLL 的 Oopz 进程内，Flutter/Dart 动态解析到的 Win32 窗口查询。
-覆盖窗口查找、枚举、标题和类名等已实现查询，识别 obs.exe、obs32.exe、obs64.exe、
-yyobs.exe 文件名及 obs-studio 目录路径。
-不承诺覆盖其他直播软件、改名后的软件或独立的进程枚举途径。
-窗口过滤可能同时使 OBS 不出现在 Oopz 的屏幕共享窗口列表中。
-系统和其他程序的查询不受本 DLL 过滤影响。
+1. 解压完整 Windows 安装包，从系统托盘完全退出 Oopz。
+2. 将 dwmapi.dll 放到 oopz.exe 同目录。
+   常见路径为 %LOCALAPPDATA%\oopz；自定义安装以实际程序位置为准。
+3. 用原来的 Oopz 快捷方式启动客户端，默认开启两项功能。
+同目录已有 dwmapi.dll 时，先保留并确认用途，避免覆盖其他补丁。
+DLL 应放在客户端目录，不要放入 Windows 系统目录。
 
 查看状态
-资源管理器地址栏输入 %TEMP%\OopzGuard，查看最新 oopz-进程号.log。
-Exact AOT matched：快照匹配，日志分别说明广告处理和窗口过滤状态。
-UNSUPPORTED_OR_IO_ERROR：版本或文件不匹配，或临时文件准备失败；没有启用修改。
-匹配后的广告副本缓存在该目录，大小约 32 MB。日志出现匹配文字不等于全部广告已消失。
+资源管理器打开 %TEMP%\OopzGuard，查看最新 oopz-进程号.log。
+Exact AOT matched 表示快照匹配，后续日志分别说明广告处理与窗口过滤状态。
+UNSUPPORTED_OR_IO_ERROR 表示版本不匹配或临时文件准备失败，修改未启用。
+匹配后的快照副本约 32 MB，加载前核验 SHA256。
+匹配记录本身不能证明登录后的所有广告已消失。
 
-可选开关
-在 dwmapi.dll 同目录创建 oopz_guard.ini：
+功能与设置
+在临时副本中等长改写两条广告请求路径与三个发现页字段，并更新 Dart 字符串哈希。
+OBS 过滤只影响该 Oopz 进程经 Flutter/Dart 动态解析的已实现 Win32 窗口查询，
+识别 obs.exe、obs32.exe、obs64.exe、yyobs.exe 与 obs-studio 目录路径。
+其他直播软件、改名软件与独立进程枚举途径未宣称覆盖。
+OBS 可能同时不出现在 Oopz 的屏幕共享窗口列表中。
+系统 DWM 命名接口转发到原 DLL；仅序号导出的跨 Windows 兼容性尚未全面验证。
+可选：将 oopz_guard.ini.example 复制为 DLL 同目录的 oopz_guard.ini：
 [Guard]
 BlockAds=1
 HideOBSWindows=1
-1 为开启，0 为关闭。修改后完全退出再启动 Oopz。
+1 为开启，0 为关闭；默认无需配置文件。修改后完全退出并重启 Oopz。
 
-回滚
-完全退出 Oopz 后，删除放入的 dwmapi.dll；如创建过 oopz_guard.ini，也可删除。
-原始 oopz.exe、flutter_windows.dll、data\app.so 不会被本工具替换或修改。
-关闭所有使用本 DLL 的 Oopz 和测试进程后，可选删除 %TEMP%\OopzGuard 临时缓存。
+客户端更新
+本版不自动适配新版。更新后检查兼容范围与日志，不匹配会保留原始行为。
+官方更新若移除了同目录 DLL，需要在确认适配后重新放置。
 
-验证限制
-这是实验版。2026-10-11 的本地受控测试验证了 DLL 加载、DWM 转发、五处快照修改与哈希、
-不匹配透传、配置关闭、窗口过滤辅助逻辑，以及真实 Flutter 引擎读取修改快照。
-尚未在登录后的 Oopz 界面完整验证广告展示、主播模式、语音和屏幕共享流程。
-公开网页代码与本机静态分析不能替代桌面界面实测。
-GitHub CI 是否通过，以仓库实际运行记录为准；本文不声明 CI 已成功。
-调查来源、证据和测试边界见仓库 research/调查报告.md。
+卸载与回滚
+完全退出 Oopz，移除添加的 dwmapi.dll；如创建过 oopz_guard.ini，也可删除。
+原始 oopz.exe、flutter_windows.dll 与 data\app.so 不会被替换或修改。
+关闭所有使用本 DLL 的进程后，可选删除 %TEMP%\OopzGuard 临时缓存。
+
+验证范围
+本次构建记录见 build-info.json，下载校验见 Release 的 SHA256SUMS.txt，
+包内文件校验见 FILE_HASHES.txt。既有本地受控测试范围见 VALIDATION.md。
+登录后广告界面、主播模式、语音与屏幕共享尚未完整人工验收。
+
+项目与下载
+OopzGuard：https://github.com/half-drop/oopz-guard
+正式版：https://github.com/half-drop/oopz-guard/releases/latest
+同系列 KookGuard：https://github.com/half-drop/kook-guard

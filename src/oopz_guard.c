@@ -209,7 +209,7 @@ static void *guard_engine_create(const EngineProperties *properties) {
     if (!(hook_status & 4)) {
         BOOL ads = GetPrivateProfileIntW(L"Guard", L"BlockAds", 1, ini_path) != 0;
         BOOL privacy = GetPrivateProfileIntW(L"Guard", L"HideOBSWindows", 1, ini_path) != 0;
-        log_line("OopzGuard 0.1.0 experimental; profile=0.88.41; validating AOT SHA256");
+        log_line("OopzGuard 0.1.2; profile=0.88.41; validating AOT SHA256");
         if (prepare_snapshot(properties->aot_library_path, ads)) {
             InterlockedExchange(&guard_window_filter_active, privacy && (hook_status & 2));
             InterlockedOr(&hook_status, 8);
@@ -315,4 +315,4 @@ FARPROC *ResolveDwmExport(unsigned int ordinal) {
 }
 
 __declspec(dllexport) DWORD WINAPI OopzGuardStatus(void) { return (DWORD)hook_status; }
-__declspec(dllexport) const char * WINAPI OopzGuardVersion(void) { return "0.1.1 experimental / oopz 0.88.41 x64"; }
+__declspec(dllexport) const char * WINAPI OopzGuardVersion(void) { return "0.1.2 / oopz 0.88.41 x64"; }
