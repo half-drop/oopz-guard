@@ -18,10 +18,10 @@ def digest(path):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--version', default='v0.1.0-experimental')
+    parser.add_argument('--version', default='v0.1.1-experimental')
     parser.add_argument('--commit', default=os.environ.get('GITHUB_SHA', 'local'))
     args = parser.parse_args()
-    version = args.version if args.version.startswith('v') else 'v0.1.0-dev'
+    version = args.version if args.version.startswith('v') else 'v0.1.1-dev'
     if not re.fullmatch(r'v[0-9A-Za-z._-]+', version):
         raise ValueError('Invalid release version')
     if args.commit != 'local' and not re.fullmatch(r'[0-9a-f]{40}', args.commit):

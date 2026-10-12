@@ -12,7 +12,7 @@
 
 - 广告部分修改临时 AOT 副本中的五个指定字符串对象及其 Dart 哈希，并让引擎读取副本；原程序文件保持原样。
 - 直播软件部分过滤 Oopz 经 Dart FFI 查询的 OBS 窗口，覆盖 12 个 Win32 窗口 API。未覆盖所有进程枚举或直播软件检测途径，也可能使 OBS 不出现在 Oopz 的屏幕共享窗口列表中。
-- 系统 DWM 接口转发到 Windows System32 中的原 DLL。
+- 系统 DWM 接口转发到 Windows System32 中的原 DLL；命名接口按名称解析，避免系统版本之间的序号变化影响加载。仅序号导出沿用调查时的基准映射，未完成跨系统版本验证。
 
 ## 下载和使用
 
@@ -29,7 +29,7 @@
 ./build.ps1
 ./tests/run-ci.ps1 -ZigPath ./toolchain/zig-0.16.0/ziglang/zig.exe
 python ./tools/verify_build.py
-python ./tools/package_release.py --version v0.1.0-experimental
+python ./tools/package_release.py --version v0.1.1-experimental
 ```
 
 编译器固定为 Zig 0.16.0，下载后验证锁定的 SHA256。Python 脚本仅使用标准库。构建采用提交的版本配置和 DWM 导出表，不需要安装 Oopz。`tests/run.ps1` 是需要本机原始 AOT 文件的额外验证，不在云端执行。

@@ -1,4 +1,4 @@
-# OopzGuard 0.1.0 实验版
+# OopzGuard 0.1.1 实验版
 
 为 Windows x64 的 Oopz 0.88.41 已调查快照提供同目录加载的 `dwmapi.dll`。默认处理两条广告请求路径、三个发现页广告字段，并过滤 Oopz 内已实现的 OBS 窗口查询。
 
@@ -26,6 +26,8 @@ OBS 过滤仅覆盖该 Oopz 进程经 Flutter/Dart 动态解析到的 Win32 窗�
 
 原始 `oopz.exe`、`flutter_windows.dll` 和 `data/app.so` 保持不变；系统 DWM 导出转发到系统库。关闭 Oopz 后移除添加的 DLL 即可回滚。
 
+本版本修复 Windows Server 2025 云端测试发现的 DWM 导出序号差异：命名接口按真实函数名称转发。仅序号导出保留调查时的基准映射，尚未完成跨 Windows 版本验证。
+
 ## 本地验证与限制
 
 2026-10-11 的本地受控测试已经完成：
@@ -37,4 +39,4 @@ OBS 过滤仅覆盖该 Oopz 进程经 Flutter/Dart 动态解析到的 Win32 窗�
 
 上述为本地验证记录，不代表 GitHub CI 已成功。尚未完成登录后广告位、主播模式、语音与屏幕共享的完整界面实测，也没有验证当前官网新版。公开网页逻辑与静态字符串证据不能等同于桌面运行效果。
 
-安装、日志、开关与回滚步骤见发布包的 `使用说明.txt` 或仓库 [使用说明](使用说明.txt)。调查来源及详细证据见 [调查报告](../research/调查报告.md)。
+安装、日志、开关与回滚步骤见发布包的 `使用说明.txt` 或仓库 [使用说明](https://github.com/half-drop/oopz-guard/blob/main/docs/%E4%BD%BF%E7%94%A8%E8%AF%B4%E6%98%8E.txt)。调查来源及详细证据见 [调查报告](https://github.com/half-drop/oopz-guard/blob/main/research/%E8%B0%83%E6%9F%A5%E6%8A%A5%E5%91%8A.md)。

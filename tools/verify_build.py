@@ -70,6 +70,29 @@ def header_hash(text, name):
     return bytes(int(token, 16) for token in tokens).hex()
 
 
+def validate_dwm_name_table(header, expected):
+    """Check the explicit name/NULL table against every fixed proxy ordinal."""
+    require(header_integer(header, "DWM_EXPORT_FIRST_ORDINAL") == 100,
+            "DWM name table must start at ordinal 100")
+    require(header_integer(header, "DWM_EXPORT_LAST_ORDINAL") == 198,
+            "DWM name table must end at ordinal 198")
+    require(header_integer(header, "DWM_EXPORT_NAME_COUNT") == 99,
+            "DWM name table must declare exactly 99 entries")
+    uncommented = re.sub(r"/\*.*?\*/|//[^\n]*", "", header, flags=re.DOTALL)
+    table = re.search(
+        r"\bstatic\s+const\s+char\s*\*\s*const\s+dwm_export_names"
+        r"\s*\[\s*99\s*\]\s*=\s*\{(.*?)\};", uncommented, re.DOTALL)
+    require(table is not None, "Fixed 99-entry DWM name table missing")
+    entry = re.compile(r'(NULL|"([A-Za-z_]\w*)")\s*,?')
+    matches = list(entry.finditer(table[1]))
+    require(not entry.sub("", table[1]).strip(), "Unexpected DWM name table syntax")
+    names = [None if match[1] == "NULL" else match[2] for match in matches]
+    require(len(names) == 99, "DWM name table must contain exactly 99 name/NULL values")
+    mapping = {100 + index: name for index, name in enumerate(names)}
+    require(mapping == expected, "DWM header name/NULL mapping differs from DEF name/NONAME entries")
+    return mapping
+
+
 def validate_profile(header, profile):
     require(isinstance(profile, dict), "Profile JSON must be an object")
     for name in ("source_sha256", "patched_sha256"):
@@ -124,6 +147,7 @@ def validate_profile(header, profile):
 
 def main():
     expected = definition_exports(read_text("src/dwmapi.def"))
+    name_table = validate_dwm_name_table(read_text("src/dwmapi_names.h"), expected)
     profile = json.loads(read_text("research/profile.json"))
     validate_profile(read_text("src/profile.h"), profile)
     dll = PE(required_path("dist/dwmapi.dll"))
@@ -148,6 +172,13 @@ def main():
         "dwm_export_mapping_count": len(actual),
         "named_dwm_exports": sum(name is not None for name in actual.values()),
         "ordinal_only_dwm_exports": sum(name is None for name in actual.values()),
+        "dwm_name_table_mapping_count": len(name_table),
+        "dwm_name_table_mapping_matches": True,
+        "ordinal_only_dwm_cross_windows_verified": False,
+        "dwm_forwarding_compatibility": {
+            "named_exports": "Name table matches DEF; runtime forwarding is checked separately by loader tests",
+            "ordinal_only_exports": "Fixed ordinal forwarding; meanings and ABI across different Windows versions are unverified",
+        },
         "diagnostic_exports": sorted(DIAGNOSTIC_NAMES),
         "pe_forwarded_exports": 0,
         "definition_export_mapping_matches": True,
@@ -159,7 +190,8 @@ def main():
         "profile_patch_count": len(profile["patches"]),
         "verification_scope": "Standalone build structure and checked-in profile consistency",
         "not_verified": ["Oopz desktop UI", "voice or screen-sharing behavior",
-                         "installed Oopz AOT content", "real Flutter AOT parsing"],
+                         "installed Oopz AOT content", "real Flutter AOT parsing",
+                         "ordinal-only DWM export compatibility across different Windows versions"],
     }
     output = json.dumps(result, ensure_ascii=False, indent=2) + "\n"
     (ROOT / "dist/build-verification.json").write_text(output, encoding="utf-8")

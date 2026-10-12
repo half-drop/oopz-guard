@@ -7,6 +7,7 @@
 #include <wchar.h>
 #include "window_filter.h"
 #include "profile.h"
+#include "dwmapi_names.h"
 
 /* Only these first three fields are ever changed. The known Flutter ABI has
  * six fields and is checked by the real-engine smoke test before delivery. */
@@ -294,13 +295,19 @@ static BOOL CALLBACK load_system_dwm(PINIT_ONCE once, PVOID parameter, PVOID *co
 }
 
 static HRESULT WINAPI unavailable_dwm(void) { return E_NOTIMPL; }
+static FARPROC unavailable_dwm_target = (FARPROC)unavailable_dwm;
 
 /* Assembly trampolines preserve all x64 argument registers and tail-call the
  * system export. Nothing is loaded from inside DllMain. */
 FARPROC *ResolveDwmExport(unsigned int ordinal) {
+    if (ordinal < DWM_EXPORT_FIRST_ORDINAL || ordinal > DWM_EXPORT_LAST_ORDINAL)
+        return &unavailable_dwm_target;
     FARPROC p = (FARPROC)unavailable_dwm;
     if (InitOnceExecuteOnce(&dwm_once, load_system_dwm, NULL, NULL)) {
-        FARPROC resolved = GetProcAddress(system_dwm, MAKEINTRESOURCEA(ordinal));
+        /* Named exports move between ordinals on different Windows versions.
+         * Never fall back to an old ordinal when a named API is unavailable. */
+        const char *name = dwm_export_names[ordinal - DWM_EXPORT_FIRST_ORDINAL];
+        FARPROC resolved = GetProcAddress(system_dwm, name ? name : MAKEINTRESOURCEA(ordinal));
         if (resolved) p = resolved;
     }
     InterlockedCompareExchangePointer((void *volatile *)&dwm_targets[ordinal], (void *)p, NULL);
@@ -308,4 +315,4 @@ FARPROC *ResolveDwmExport(unsigned int ordinal) {
 }
 
 __declspec(dllexport) DWORD WINAPI OopzGuardStatus(void) { return (DWORD)hook_status; }
-__declspec(dllexport) const char * WINAPI OopzGuardVersion(void) { return "0.1.0 experimental / oopz 0.88.41 x64"; }
+__declspec(dllexport) const char * WINAPI OopzGuardVersion(void) { return "0.1.1 experimental / oopz 0.88.41 x64"; }
