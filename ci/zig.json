@@ -1,0 +1,9 @@
+{
+  "version": "0.16.0",
+  "archive_url": "https://files.pythonhosted.org/packages/a6/3c/baff40b3fc8ab4e83530246a52e8f3a5186c3606562712dfb58483b04f79/ziglang-0.16.0-py3-none-win_amd64.whl",
+  "archive_sha256": "089a16a4eb5a2f45151993342f8fabad24ff1a0723dc146642895c29208a3939",
+  "archive_bytes": 98676957,
+  "source_project": "https://codeberg.org/ziglang/zig-pypi",
+  "metadata_url": "https://pypi.org/pypi/ziglang/0.16.0/json",
+  "executable": "ziglang/zig.exe"
+}

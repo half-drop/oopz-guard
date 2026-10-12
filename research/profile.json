@@ -1,0 +1,38 @@
+{
+  "version": "0.88.41",
+  "source_sha256": "8384ee1a0a3c39194755034328c34ec9dc1f76842d38144cc78b43c3153cc8aa",
+  "size": 31851424,
+  "patched_sha256": "fe5543608376490006032b4f5c0b164850b08658c4a2ac962a00556a7aab2319",
+  "patches": [
+    {
+      "offset": 7464176,
+      "before": "/uni/advertisement/v1/list",
+      "after": "/uni/advertisemenz/v1/list",
+      "new_hash": 16322826
+    },
+    {
+      "offset": 8077712,
+      "before": "/advertisement/v2",
+      "after": "/advertisemenz/v2",
+      "new_hash": 62483866
+    },
+    {
+      "offset": 7184832,
+      "before": "advertisementBannerList",
+      "after": "advertisemenzBannerList",
+      "new_hash": 974202044
+    },
+    {
+      "offset": 10390480,
+      "before": "adBanner",
+      "after": "xxBanner",
+      "new_hash": 40601779
+    },
+    {
+      "offset": 7796928,
+      "before": "adSection",
+      "after": "xxSection",
+      "new_hash": 619967854
+    }
+  ]
+}
