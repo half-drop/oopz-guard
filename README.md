@@ -3,34 +3,23 @@
 [![构建与验证](https://github.com/half-drop/oopz-guard/actions/workflows/build-release.yml/badge.svg)](https://github.com/half-drop/oopz-guard/actions/workflows/build-release.yml)
 [![正式版本](https://img.shields.io/github/v/release/half-drop/oopz-guard)](https://github.com/half-drop/oopz-guard/releases/latest)
 
-**OopzGuard** 是 Guard 系列的 Windows Oopz 去广告与 OBS 窗口过滤工具，提供安装、诊断与回滚。当前正式版：**v0.1.2**。
+**OopzGuard** 是 Guard 系列的 Windows Oopz 自适应去广告与 OBS 窗口过滤工具，提供安装、诊断与回滚。当前正式版：**v0.2.0**。
 
 [下载正式版](https://github.com/half-drop/oopz-guard/releases/latest) · [使用说明](docs/使用说明.txt) · [验证范围](VALIDATION.md) · [同系列 KookGuard](https://github.com/half-drop/kook-guard)
 
-## 兼容范围
+## 工作方式
 
-| 项目 | 支持范围 |
-| --- | --- |
-| 客户端 | Oopz 0.88.41 的指定原始 `data/app.so` 快照 |
-| 架构 | Windows x64 |
-| 安装方式 | 将 `dwmapi.dll` 放到 `oopz.exe` 同目录 |
-| 客户端更新 | 新版未适配；快照不匹配时保留原始行为 |
+面向 **Windows x64 Oopz**。启动时自动识别客户端快照中的 Dart 字符串结构，再按广告特征处理请求、数据字段和素材地址；不绑定客户端版本号、固定文件大小、文件指纹或补丁位置。客户端更新后会重新扫描，无需为普通版本更新重新编译。
 
-原始快照必须同时满足大小 **31,851,424 字节**及以下 SHA256；仅版本号相同不代表兼容：
-
-```text
-8384ee1a0a3c39194755034328c34ec9dc1f76842d38144cc78b43c3153cc8aa
-```
-
-版本不匹配或临时副本准备失败时，不启用广告修改与窗口过滤。正式版标记不扩大客户端兼容范围，当前官网新版及其他版本尚未适配、验证。
+修改只发生在临时副本中，原始 `oopz.exe`、`flutter_windows.dll`、`data/app.so` 保持不变。无法识别结构或无法生成副本时，使用原始快照；OBS 过滤独立启用。框架结构彻底变化或广告命名改变仍可能需要更新规则，已测范围见 [验证范围](VALIDATION.md)。
 
 ## 安装与卸载
 
-1. 从 [正式版下载页](https://github.com/half-drop/oopz-guard/releases/latest) 下载 `OopzGuard-v0.1.2-windows.zip`，解压完整压缩包。
+1. 从 [正式版下载页](https://github.com/half-drop/oopz-guard/releases/latest) 下载 `OopzGuard-v0.2.0-windows.zip`，解压完整压缩包。
 2. 从系统托盘完全退出 Oopz，将 `dwmapi.dll` 放到 `oopz.exe` 所在目录。常见路径为 `%LOCALAPPDATA%\oopz`；自定义安装以实际程序位置为准。
 3. 用原来的 Oopz 快捷方式启动客户端，默认开启两项功能。
 
-查看状态：在资源管理器打开 `%TEMP%\OopzGuard`，查看最新的 `oopz-进程号.log`。卸载：完全退出 Oopz，移除添加的 `dwmapi.dll`；如创建过 `oopz_guard.ini`，也可删除。原始程序与 AOT 文件保持不变。
+查看状态：在资源管理器打开 `%TEMP%\OopzGuard`，查看最新的 `oopz-进程号.log`。卸载：完全退出 Oopz，移除添加的 `dwmapi.dll`；如创建过 `oopz_guard.ini`，也可删除。
 
 如果目录里已经有 `dwmapi.dll`，先保留并确认其用途，避免覆盖其他补丁。DLL 应放在客户端目录，不要放入 Windows 系统目录。
 
@@ -38,14 +27,15 @@
 
 | 功能 | 处理范围 |
 | --- | --- |
-| 广告请求 | 在临时 AOT 副本中等长改写两条已确认请求路径，使对应请求失败 |
-| 发现页广告字段 | 等长改写 `advertisementBannerList`、`adBanner`、`adSection` 并更新 Dart 字符串哈希 |
-| OBS 窗口过滤 | 覆盖 Oopz 经 Dart FFI 动态查询的 12 个 Win32 窗口 API |
+| 广告请求 | 自动定位广告路径，覆盖不同 API 版本及 `advertisement`、`advert`、`advertising`、`ads`、`ad` 路径段 |
+| 广告数据 | 处理广告列表、横幅、分区及推荐广告字段，包括 `advs`、`advertisement*`、`adBanner*`、`adSection*`、`adList*` 等 |
+| 广告素材 | 处理明确广告目录中的网络素材与本地素材地址 |
+| OBS 窗口过滤 | 覆盖 Oopz 经 Dart FFI 动态查询的 12 个 Win32 窗口 API，与广告处理独立开关 |
 | 系统 DWM 接口 | 命名接口按名称转发到 System32 原 DLL |
 
-原始 `oopz.exe`、`flutter_windows.dll`、`data/app.so` 不会被替换或修改。请求失败处理、已有内存状态及其他推广接口可能影响结果，未宣称所有广告都已覆盖。
+在临时副本中等长改写广告字符串并更新 Dart 字符串哈希，保持对象布局；自动识别类编号、单字节/双字节编码及三种哈希布局。普通 `banner`、通用推荐字段、下载和语音地址保留，避免影响正常业务。
 
-窗口过滤识别 `obs.exe`、`obs32.exe`、`obs64.exe`、`yyobs.exe` 及 `obs-studio` 目录路径。其他直播软件、改名软件和独立进程枚举途径未宣称覆盖；OBS 可能同时不出现在 Oopz 的屏幕共享窗口列表中。仅序号 DWM 导出保留调查时的基准映射，跨 Windows 版本尚未完整验证。
+窗口过滤识别 `obs.exe`、`obs32.exe`、`obs64.exe`、`yyobs.exe` 及 `obs-studio` 目录路径。OBS 可能同时不出现在 Oopz 的屏幕共享窗口列表中。其他直播软件、独立进程枚举和仅序号 DWM 导出的跨 Windows 兼容性见 [验证范围](VALIDATION.md)。
 
 可选：将 `oopz_guard.ini.example` 复制为 DLL 同目录的 `oopz_guard.ini`，按需设置，完全退出并重启 Oopz 后生效：
 
@@ -59,45 +49,45 @@ HideOBSWindows=1
 
 ## 客户端更新
 
-本版仅适配上述快照，不自动适配新版。更新后请查看日志并核对兼容范围；不匹配会保留原快照和原窗口查询。官方更新若移除了同目录 DLL，需要在确认适配后重新放置。
+更新后的下次启动自动扫描新快照，按新内容生成独立缓存。官方更新若移除了同目录 DLL，重新放置即可。发现残留广告时可根据日志中的命中数量调查新增入口，规则不受旧版文件指纹限制。
 
 ## 验证与诊断
 
-本次构建的验证结果与提交记录见发行附件 `build-info.json`；下载文件校验见 `SHA256SUMS.txt`，包内文件校验见 `FILE_HASHES.txt`。本地受控测试与自动化测试的边界见 [验证范围](VALIDATION.md)。
+日志与临时副本位于 `%TEMP%\OopzGuard`：
 
-日志与匹配后的快照副本位于 `%TEMP%\OopzGuard`：
+- `Adaptive snapshot`：显示识别到的字符串数、结构及广告请求/字段/素材命中数量；`patched=0` 表示未发现符合规则的内容。
+- `SNAPSHOT_UNRECOGNIZED_OR_IO_ERROR`：无法识别或准备副本，使用原始快照；OBS 过滤状态会单独记录。
+- `BlockAds=0`：按设置使用原始快照。
 
-- `Exact AOT matched`：快照匹配，后续日志分别说明广告处理与窗口过滤状态。
-- `UNSUPPORTED_OR_IO_ERROR`：版本或文件不匹配，或临时副本准备失败；修改未启用。
-- 临时广告副本约 32 MB，加载前核验 SHA256。
+当前官网客户端静态命中 **25 处**：2 条广告请求、11 个广告字段、12 条素材地址。真实 Flutter 引擎读取、跨结构回归和 DLL 加载测试通过；登录后的广告展示、语音和共享流程仍需人工验收，命中数量不能证明所有广告都已消失。
 
-匹配记录本身不能证明登录后的所有广告已消失。登录后广告界面、主播模式、语音与屏幕共享尚未完整人工验收。详细证据见 [调查报告](research/调查报告.md)。
+本次构建结果见发行附件 `build-info.json`；下载文件校验见 `SHA256SUMS.txt`，包内校验见 `FILE_HASHES.txt`。这些用于核验发行文件，不限制客户端版本。实现与调查见 [自适应广告过滤](research/自适应广告过滤.md)。
 
 ## 从源码构建
 
-需要 Windows x64 PowerShell、Python 3 及锁定的 Zig 0.16.0。Python 脚本仅使用标准库，编译器下载后校验 SHA256。
+需要 Windows x64 PowerShell、Python 3 及锁定的 Zig 0.16.0。Python 脚本仅使用标准库。
 
 ```powershell
 ./ci/install-zig.ps1
 ./build.ps1
 ./tests/run-ci.ps1 -ZigPath ./toolchain/zig-0.16.0/ziglang/zig.exe
 python ./tools/verify_build.py
-python ./tools/package_release.py --version 0.1.2
+python ./tools/package_release.py --version 0.2.0
 ```
 
-构建使用提交的版本配置与 DWM 导出表，无需安装 Oopz。`tests/run.ps1` 是需要本机原始 AOT 的额外受控验证，不在云端执行。用户安装时无需编译器或 Python。
+构建和自动化测试无需安装 Oopz。`tests/run.ps1` 可额外验证本机 AOT；传入 `-ClientRoot` 可检查真实引擎读取，不调用 Oopz 主入口。用户安装时无需编译器或 Python。
 
 ## 自动构建与发布
 
 推送 `main`、提交拉取请求或手动运行 Actions 时构建并验证。推送 `v*` 标签后，仅同次构建与校验成功才发布 Release；无后缀版本为正式版，带后缀版本为预发布版。
 
-发行文件：`OopzGuard-v版本-windows.zip`、`OopzGuard-v版本-source.zip`、`build-info.json`、`SHA256SUMS.txt`，另提供单独的 `dwmapi.dll`。发布作业下载产物后再次核验 SHA256；官方 Actions 固定提交指纹，发布权限仅授予发布作业。原 Oopz 二进制、修改后的 AOT、编译器与本机缓存不随源码发布。
+发行文件：`OopzGuard-v版本-windows.zip`、`OopzGuard-v版本-source.zip`、`build-info.json`、`SHA256SUMS.txt`，另提供单独的 `dwmapi.dll`。原 Oopz 二进制、修改后的 AOT、编译器与本机缓存不随源码发布。
 
 ## 同系列项目
 
 | 项目 | 用途 |
 | --- | --- |
 | [KookGuard](https://github.com/half-drop/kook-guard) | Windows KOOK 去广告与外部直播识别处理 |
-| **OopzGuard** | Windows Oopz 去广告与 OBS 窗口过滤 |
+| **OopzGuard** | Windows Oopz 自适应去广告与 OBS 窗口过滤 |
 
-两者使用一致的中文说明与发布格式，各自独立安装，兼容范围以对应仓库为准。
+两者使用一致的中文说明与发布格式，各自独立安装。

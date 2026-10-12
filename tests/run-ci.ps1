@@ -1,7 +1,8 @@
-param(
+﻿param(
     [Parameter(Mandatory = $true)]
     [ValidateNotNullOrEmpty()]
     [string]$ZigPath,
+    [string]$PythonPath = 'python',
     [string]$ResultPath = (Join-Path $PSScriptRoot '..\dist\ci-test-results.json')
 )
 
@@ -18,18 +19,15 @@ $filterSource = Join-Path $projectRoot 'src\window_filter.c'
 $testSource = Join-Path $projectRoot 'src\window_filter_test.c'
 $mockSource = Join-Path $projectRoot 'tests\mock_flutter.c'
 $loaderSource = Join-Path $projectRoot 'tests\loader.c'
-$profileSource = Join-Path $projectRoot 'src\profile.h'
+$patchSource = Join-Path $projectRoot 'src\snapshot_patch.c'
+$probeSource = Join-Path $projectRoot 'tests\snapshot_probe.c'
+$adaptiveTest = Join-Path $projectRoot 'tools\test_adaptive.py'
 $proxySource = Join-Path $projectRoot 'dist\dwmapi.dll'
-foreach ($source in @($filterSource, $testSource, $mockSource, $loaderSource, $profileSource, $proxySource)) {
+foreach ($source in @($filterSource, $testSource, $mockSource, $loaderSource, $patchSource, $probeSource, $adaptiveTest, $proxySource)) {
     if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
         throw ('Required test input does not exist: ' + (Split-Path -Leaf $source))
     }
 }
-$profileText = [IO.File]::ReadAllText($profileSource)
-if ($profileText -notmatch '(?m)^#define\s+PROFILE_SIZE\s+([0-9]+)u\s*$') {
-    throw 'Cannot read PROFILE_SIZE from src/profile.h.'
-}
-$profileSize = [UInt32]::Parse($Matches[1])
 $resultFile = [IO.Path]::GetFullPath($ResultPath)
 if (-not (Test-Path -LiteralPath (Split-Path -Parent $resultFile) -PathType Container)) {
     throw 'The CI result destination directory must already exist.'
@@ -60,10 +58,10 @@ $result = [ordered]@{
     schemaVersion = 1
     passed = $false
     target = 'x86_64-windows-gnu'
-    scope = 'Synthetic Win32 helper windows and mock Flutter loader only. Real Oopz UI, voice calls, ad display, and newer versions are not verified in CI.'
+    scope = 'Adaptive ELF/Dart fixtures, synthetic Win32 windows and actual proxy DLL with mock Flutter. Real Oopz UI and voice calls require manual verification.'
     dll = 'dist/dwmapi.dll'
     dllSha256 = (Get-FileHash -LiteralPath $proxySource -Algorithm SHA256).Hash.ToLowerInvariant()
-    profileSize = $profileSize
+    adaptivePolicy = 2
     tests = @()
 }
 
@@ -121,14 +119,37 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "Mock loader compilation failed (exit code $LASTEXITCODE)." }
     Copy-Item -LiteralPath $proxySource -Destination (Join-Path $runtimeDirectory 'dwmapi.dll')
     $result.dllSha256 = (Get-FileHash -LiteralPath (Join-Path $runtimeDirectory 'dwmapi.dll') -Algorithm SHA256).Hash.ToLowerInvariant()
-    [IO.File]::WriteAllBytes((Join-Path $runtimeDirectory 'unsupported.so'), [byte[]](1, 2, 3, 4))
-    $zeroFile = [IO.File]::Open((Join-Path $runtimeDirectory 'unsupported-size-matched.so'), [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
-    try { $zeroFile.SetLength($profileSize) } finally { $zeroFile.Dispose() }
-    foreach ($case in @('unsupported', 'unsupported-size-matched')) {
+    $probeExecutable = Join-Path $runtimeDirectory 'snapshot_probe.exe'
+    & $zigExecutable cc -target x86_64-windows-gnu -O2 -Wall -Wextra -Werror $patchSource $probeSource -o $probeExecutable
+    if ($LASTEXITCODE -ne 0) { throw 'Adaptive scanner probe compilation failed.' }
+    Invoke-StandaloneTest -Name 'adaptive-scanner' -Executable $PythonPath -Arguments ('"' + $adaptiveTest + '" --probe "' + $probeExecutable + '" --directory "' + $runtimeDirectory + '"') -ExpectedMarker 'adaptive scanner tests: 13 cases, 0 failures'
+    foreach ($case in @('base', 'shifted', 'cid-changed', 'utf16', 'compressed-hash', 'separate-hash', 'wide-separate')) {
         foreach ($attempt in 1..2) {
-            Invoke-StandaloneTest -Name ("loader-{0}-{1}" -f $case, $attempt) -Executable $loaderExecutable -Arguments ("{0}.so original" -f $case) -ExpectedMarker '(?m)^loader test \(original\): 0 failures, status=0x7\r?$'
+            Invoke-StandaloneTest -Name ("loader-{0}-{1}" -f $case, $attempt) -Executable $loaderExecutable -Arguments ("{0}.so patched {0}.patched.so" -f $case) -ExpectedMarker '(?m)^loader test \(patched\): 0 failures, status=0xf\r?$'
         }
     }
+    Invoke-StandaloneTest -Name 'loader-no-ads' -Executable $loaderExecutable -Arguments 'no-ads.so noads' -ExpectedMarker 'loader test \(noads\): 0 failures, status=0xf'
+    foreach ($case in @('truncated', 'invalid-header', 'invalid-hashes', 'executable-only', 'overlapping-segments')) {
+        Invoke-StandaloneTest -Name ("loader-{0}" -f $case) -Executable $loaderExecutable -Arguments ("{0}.so original" -f $case) -ExpectedMarker 'loader test \(original\): 0 failures, status=0x7'
+    }
+    $config = Join-Path $runtimeDirectory 'oopz_guard.ini'
+    [IO.File]::WriteAllText($config, "[Guard]`r`nBlockAds=0`r`nHideOBSWindows=1`r`n")
+    Invoke-StandaloneTest -Name 'loader-privacy-only' -Executable $loaderExecutable -Arguments 'base.so disabled' -ExpectedMarker 'loader test \(disabled\): 0 failures, status=0xf'
+    [IO.File]::WriteAllText($config, "[Guard]`r`nBlockAds=1`r`nHideOBSWindows=0`r`n")
+    Invoke-StandaloneTest -Name 'loader-ads-only' -Executable $loaderExecutable -Arguments 'base.so patched base.patched.so' -ExpectedMarker 'loader test \(patched\): 0 failures, status=0xf'
+    [IO.File]::WriteAllText($config, "[Guard]`r`nBlockAds=0`r`nHideOBSWindows=0`r`n")
+    Invoke-StandaloneTest -Name 'loader-disabled' -Executable $loaderExecutable -Arguments 'base.so disabled' -ExpectedMarker 'loader test \(disabled\): 0 failures, status=0xf'
+    Remove-Item -LiteralPath $config
+    # This cache belongs to the independently generated base fixture only.
+    $fixtureHash = (Get-FileHash -LiteralPath (Join-Path $runtimeDirectory 'base.patched.so') -Algorithm SHA256).Hash.ToLowerInvariant()
+    $fixtureCache = Join-Path ([IO.Path]::GetTempPath()) ('OopzGuard\snapshot-p2-' + $fixtureHash + '.so')
+    if ((Get-FileHash -LiteralPath $fixtureCache -Algorithm SHA256).Hash.ToLowerInvariant() -ne $fixtureHash) { throw 'Unexpected fixture cache before corruption test.' }
+    [IO.File]::WriteAllBytes($fixtureCache, [byte[]](1, 2, 3, 4))
+    $lease = [IO.File]::Open($fixtureCache, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+    try {
+        Invoke-StandaloneTest -Name 'loader-locked-damaged-cache' -Executable $loaderExecutable -Arguments 'base.so original' -ExpectedMarker 'loader test \(original\): 0 failures, status=0x7'
+    } finally { $lease.Dispose() }
+    Invoke-StandaloneTest -Name 'loader-cache-rebuild' -Executable $loaderExecutable -Arguments 'base.so patched base.patched.so' -ExpectedMarker 'loader test \(patched\): 0 failures, status=0xf'
     $succeeded = $true
 } finally {
     # On abnormal exit, stop only processes created from this unique test path.

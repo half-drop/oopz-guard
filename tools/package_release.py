@@ -53,7 +53,7 @@ def source_members():
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--version', default='0.1.2')
+    parser.add_argument('--version', default='0.2.0')
     parser.add_argument('--commit', default=os.environ.get('GITHUB_SHA', 'local'))
     args = parser.parse_args()
     version = args.version.removeprefix('v')
@@ -76,12 +76,12 @@ def main():
         'actionsRun': f'https://github.com/{repo}/actions/runs/{run}' if repo and run else None,
         'builtAtUtc': datetime.now(timezone.utc).isoformat(), 'verified': True,
         'verification': {'build': verification, 'syntheticTests': tests},
-        'compatibleClient': 'Oopz 0.88.41 exact AOT / Windows x64',
+        'compatibleClient': 'Windows x64 Oopz / adaptive Dart AOT discovery; no client-version whitelist',
         'installation': 'Same-directory dwmapi.dll',
         'compiler': {'name': 'Zig', 'version': compiler['version'],
                      'archive_sha256': compiler['archive_sha256']},
         'unverified': ['Logged-in Oopz advertising UI', 'voice channels',
-                       'screen-sharing workflow', 'newer client versions',
+                       'screen-sharing workflow', 'all future client layouts',
                        'all streaming-software detection paths'],
     }
     (DIST / 'build-info.json').write_text(json.dumps(info, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')

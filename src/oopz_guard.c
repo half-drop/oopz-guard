@@ -6,7 +6,7 @@
 #include <string.h>
 #include <wchar.h>
 #include "window_filter.h"
-#include "profile.h"
+#include "snapshot_patch.h"
 #include "dwmapi_names.h"
 
 /* Only these first three fields are ever changed. The known Flutter ABI has
@@ -85,40 +85,6 @@ done:
     return success;
 }
 
-static uint32_t dart_hash(const unsigned char *s, size_t length) {
-    uint32_t h = 0;
-    for (size_t i=0; i<length; ++i) {
-        h += s[i]; h += h << 10; h ^= h >> 6;
-    }
-    h += h << 3; h ^= h >> 11; h += h << 15;
-    h &= 0x3fffffffu;
-    return h ? h : 1;
-}
-
-/* No generic binary search/replacement: the entire AOT image, object length,
- * class ID and stored hash must all match this exact investigated release. */
-static BOOL patch_image(unsigned char *data, DWORD length) {
-    for (size_t i=0; i<PROFILE_PATCH_COUNT; ++i) {
-        const ProfilePatch *p = &profile_patches[i];
-        size_t n = strlen(p->before);
-        uint64_t tags, smi_length;
-        if (p->offset < 16 || p->offset+n > length || strlen(p->after) != n) return FALSE;
-        memcpy(&tags, data+p->offset-16, 8);
-        memcpy(&smi_length, data+p->offset-8, 8);
-        if (((tags >> 12) & 0xfffffu) != 94 || smi_length != n*2 ||
-            (uint32_t)(tags >> 32) != dart_hash((const unsigned char *)p->before, n) ||
-            memcmp(data+p->offset, p->before, n)) return FALSE;
-    }
-    for (size_t i=0; i<PROFILE_PATCH_COUNT; ++i) {
-        const ProfilePatch *p = &profile_patches[i];
-        size_t n = strlen(p->before);
-        uint32_t hash = dart_hash((const unsigned char *)p->after, n);
-        memcpy(data+p->offset, p->after, n);
-        memcpy(data+p->offset-12, &hash, 4);
-    }
-    return TRUE;
-}
-
 static BOOL resolve_aot_path(const wchar_t *input, wchar_t full[MAX_PATH]) {
     if (!input || !*input) return FALSE;
     if ((input[0] && input[1] == L':') || input[0] == L'\\') {
@@ -135,71 +101,69 @@ static BOOL resolve_aot_path(const wchar_t *input, wchar_t full[MAX_PATH]) {
     return TRUE;
 }
 
-static BOOL prepare_snapshot(const wchar_t *input, BOOL remove_ads) {
-    wchar_t original[MAX_PATH], directory[MAX_PATH], temp[MAX_PATH], cache[MAX_PATH];
-    unsigned char hash[32];
-    unsigned char *data = NULL;
-    HANDLE source = INVALID_HANDLE_VALUE, dest = INVALID_HANDLE_VALUE;
-    BOOL success = FALSE;
-    LARGE_INTEGER size;
-    DWORD bytes = 0;
-    temp[0] = 0;
-    if (!resolve_aot_path(input, original)) goto done;
-    source = CreateFileW(original, GENERIC_READ, FILE_SHARE_READ, NULL,
-                         OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-    if (source == INVALID_HANDLE_VALUE) goto done;
-    if (!GetFileSizeEx(source, &size) || size.QuadPart != PROFILE_SIZE) goto done;
-    data = HeapAlloc(GetProcessHeap(), 0, PROFILE_SIZE);
-    if (!data || !ReadFile(source, data, PROFILE_SIZE, &bytes, NULL) || bytes != PROFILE_SIZE) goto done;
-    if (!sha256(data, PROFILE_SIZE, hash) || memcmp(hash, profile_sha256, 32)) goto done;
-    wcscpy(validated_original_path, original);
-    if (!remove_ads) { success = TRUE; goto done; }
-    if (!patch_image(data, PROFILE_SIZE)) goto done;
-    DWORD n = GetTempPathW(MAX_PATH, directory);
-    if (!n || n+48 >= MAX_PATH) goto done;
-    wcscat(directory, L"OopzGuard");
-    if (!CreateDirectoryW(directory, NULL) && GetLastError() != ERROR_ALREADY_EXISTS) goto done;
-    swprintf(cache, MAX_PATH, L"%ls\\%ls", directory, PROFILE_CACHE_FILENAME);
-    HANDLE existing = CreateFileW(cache, GENERIC_READ, FILE_SHARE_READ, NULL,
-                                  OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-    if (existing != INVALID_HANDLE_VALUE) {
-        if (GetFileSizeEx(existing, &size) && size.QuadPart == PROFILE_SIZE &&
-            ReadFile(existing, data, PROFILE_SIZE, &bytes, NULL) && bytes == PROFILE_SIZE &&
-            sha256(data, PROFILE_SIZE, hash) && !memcmp(hash, profile_patched_sha256, 32)) {
-            snapshot_lease = existing;
-            wcscpy(prepared_path, cache);
-            success = TRUE;
-        } else CloseHandle(existing);
-        goto done;
-    }
-    if (GetLastError() != ERROR_FILE_NOT_FOUND) goto done;
-    if (!GetTempFileNameW(directory, L"ogd", 0, temp)) goto done;
-    dest = CreateFileW(temp, GENERIC_READ|GENERIC_WRITE, FILE_SHARE_READ, NULL,
-                       TRUNCATE_EXISTING, FILE_ATTRIBUTE_TEMPORARY, NULL);
-    if (dest == INVALID_HANDLE_VALUE) goto done;
-    if (!WriteFile(dest, data, PROFILE_SIZE, &bytes, NULL) || bytes != PROFILE_SIZE ||
-        !FlushFileBuffers(dest)) goto done;
-    /* Keep a read lease so another process cannot alter the mapped snapshot. */
-    CloseHandle(dest); dest = INVALID_HANDLE_VALUE;
-    if (!MoveFileW(temp, cache)) goto done;
-    temp[0] = 0;
-    snapshot_lease = CreateFileW(cache, GENERIC_READ, FILE_SHARE_READ, NULL,
-                                 OPEN_EXISTING, FILE_ATTRIBUTE_TEMPORARY, NULL);
-    if (snapshot_lease == INVALID_HANDLE_VALUE) { snapshot_lease = NULL; goto done; }
-    /* Verify again through the lease after reopening; a changed file is never
-     * supplied to Flutter even if it was altered between write and read open. */
-    if (!GetFileSizeEx(snapshot_lease, &size) || size.QuadPart != PROFILE_SIZE ||
-        !ReadFile(snapshot_lease, data, PROFILE_SIZE, &bytes, NULL) || bytes != PROFILE_SIZE ||
-        !sha256(data, PROFILE_SIZE, hash) || memcmp(hash, profile_patched_sha256, 32)) {
-        CloseHandle(snapshot_lease); snapshot_lease = NULL; goto done;
-    }
-    wcscpy(prepared_path, cache);
-    success = TRUE;
+static HANDLE verified_cache(const wchar_t *path, DWORD length, const unsigned char expected[32]) {
+    HANDLE file=CreateFileW(path,GENERIC_READ,FILE_SHARE_READ,NULL,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,NULL);
+    if(file==INVALID_HANDLE_VALUE) return NULL;
+    LARGE_INTEGER size; DWORD bytes=0; unsigned char actual[32];
+    unsigned char *buffer=NULL; BOOL valid=FALSE;
+    if(!GetFileSizeEx(file,&size)||size.QuadPart!=length) goto done;
+    buffer=HeapAlloc(GetProcessHeap(),0,length);
+    if(buffer && ReadFile(file,buffer,length,&bytes,NULL) && bytes==length &&
+       sha256(buffer,length,actual) && !memcmp(actual,expected,32)) valid=TRUE;
 done:
-    if (source != INVALID_HANDLE_VALUE) CloseHandle(source);
-    if (dest != INVALID_HANDLE_VALUE) CloseHandle(dest);
-    if (data) HeapFree(GetProcessHeap(), 0, data);
-    if (!success && temp[0]) DeleteFileW(temp);
+    if(buffer) HeapFree(GetProcessHeap(),0,buffer);
+    if(!valid) { CloseHandle(file); return NULL; }
+    return file;
+}
+
+static BOOL prepare_snapshot(const wchar_t *input, BOOL remove_ads, SnapshotReport *report) {
+    wchar_t original[MAX_PATH],directory[MAX_PATH],temp[MAX_PATH],cache[MAX_PATH];
+    unsigned char hash[32], *data=NULL;
+    HANDLE source=INVALID_HANDLE_VALUE,dest=INVALID_HANDLE_VALUE;
+    BOOL success=FALSE; LARGE_INTEGER size; DWORD bytes=0,length=0;
+    memset(report,0,sizeof(*report)); temp[0]=0;
+    if(!resolve_aot_path(input,original)) goto done;
+    if(!remove_ads) { success=TRUE; goto done; }
+    source=CreateFileW(original,GENERIC_READ,FILE_SHARE_READ,NULL,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,NULL);
+    if(source==INVALID_HANDLE_VALUE) goto done;
+    /* This is an allocation bound, not a client-version or exact-size gate. */
+    if(!GetFileSizeEx(source,&size)||size.QuadPart<64||size.QuadPart>512LL*1024*1024) goto done;
+    length=(DWORD)size.QuadPart;
+    data=HeapAlloc(GetProcessHeap(),0,length);
+    if(!data||!ReadFile(source,data,length,&bytes,NULL)||bytes!=length) goto done;
+    if(!snapshot_patch_image(data,length,report,1)) goto done;
+    wcscpy(validated_original_path,original);
+    if(!report->patched_objects) { success=TRUE;goto done; }
+    /* Hashes identify and validate this dynamically generated cache. There is
+     * no known-client SHA allowlist: any structurally recognized image works. */
+    if(!sha256(data,length,hash)) goto done;
+    DWORD n=GetTempPathW(MAX_PATH,directory);
+    if(!n||n+96>=MAX_PATH) goto done;
+    wcscat(directory,L"OopzGuard");
+    if(!CreateDirectoryW(directory,NULL)&&GetLastError()!=ERROR_ALREADY_EXISTS) goto done;
+    wchar_t hex[65];
+    for(unsigned i=0;i<32;++i) swprintf(hex+2*i,3,L"%02x",hash[i]);
+    swprintf(cache,MAX_PATH,L"%ls\\snapshot-p%u-%ls.so",directory,SNAPSHOT_POLICY_VERSION,hex);
+    snapshot_lease=verified_cache(cache,length,hash);
+    if(snapshot_lease) { wcscpy(prepared_path,cache);success=TRUE;goto done; }
+    /* A damaged, unused cache can be rebuilt. Active read leases prevent its
+     * replacement; an unsuccessful preparation keeps the original snapshot. */
+    if(GetFileAttributesW(cache)!=INVALID_FILE_ATTRIBUTES && !DeleteFileW(cache)) goto done;
+    if(!GetTempFileNameW(directory,L"ogd",0,temp)) goto done;
+    dest=CreateFileW(temp,GENERIC_WRITE,0,NULL,TRUNCATE_EXISTING,FILE_ATTRIBUTE_TEMPORARY,NULL);
+    if(dest==INVALID_HANDLE_VALUE) goto done;
+    if(!WriteFile(dest,data,length,&bytes,NULL)||bytes!=length||!FlushFileBuffers(dest)) goto done;
+    CloseHandle(dest);dest=INVALID_HANDLE_VALUE;
+    if(MoveFileW(temp,cache)) temp[0]=0;
+    else if(GetLastError()!=ERROR_ALREADY_EXISTS && GetLastError()!=ERROR_FILE_EXISTS) goto done;
+    snapshot_lease=verified_cache(cache,length,hash);
+    if(!snapshot_lease) goto done;
+    wcscpy(prepared_path,cache);success=TRUE;
+done:
+    if(source!=INVALID_HANDLE_VALUE) CloseHandle(source);
+    if(dest!=INVALID_HANDLE_VALUE) CloseHandle(dest);
+    if(data) HeapFree(GetProcessHeap(),0,data);
+    if(temp[0]) DeleteFileW(temp);
     return success;
 }
 
@@ -209,17 +173,21 @@ static void *guard_engine_create(const EngineProperties *properties) {
     if (!(hook_status & 4)) {
         BOOL ads = GetPrivateProfileIntW(L"Guard", L"BlockAds", 1, ini_path) != 0;
         BOOL privacy = GetPrivateProfileIntW(L"Guard", L"HideOBSWindows", 1, ini_path) != 0;
-        log_line("OopzGuard 0.1.2; profile=0.88.41; validating AOT SHA256");
-        if (prepare_snapshot(properties->aot_library_path, ads)) {
-            InterlockedExchange(&guard_window_filter_active, privacy && (hook_status & 2));
+        SnapshotReport report;
+        log_line("OopzGuard 0.2.0; adaptive Dart string discovery; no client-version whitelist.");
+        /* OBS query filtering is independent of snapshot/ad compatibility. */
+        InterlockedExchange(&guard_window_filter_active, privacy && (hook_status & 2));
+        if (prepare_snapshot(properties->aot_library_path, ads, &report)) {
             InterlockedOr(&hook_status, 8);
-            log_line(ads ? "Exact AOT matched; two advertisement API paths and three discovery ad keys disabled in temporary snapshot."
-                         : "Exact AOT matched; BlockAds=0.");
-            log_line(guard_window_filter_active ? "OBS/YY OBS window filtering enabled for Dart FFI queries only."
-                             : "HideOBSWindows=0.");
+            char message[192];
+            snprintf(message,sizeof(message),"Adaptive snapshot: strings=%u layouts=%u class=%u api=%u fields=%u assets=%u patched=%u.",
+                report.string_objects,report.layouts,report.class_id,report.api_paths,report.ad_fields,report.ad_assets,report.patched_objects);
+            log_line(ads?message:"BlockAds=0; original snapshot retained.");
         } else {
-            log_line("UNSUPPORTED_OR_IO_ERROR: retaining original snapshot and window queries; no patch applied.");
+            log_line("SNAPSHOT_UNRECOGNIZED_OR_IO_ERROR: original snapshot retained; OBS filtering remains independent.");
         }
+        log_line(guard_window_filter_active ? "OBS/YY OBS window filtering enabled for Dart FFI queries."
+                     : "OBS window filtering disabled or lookup hook unavailable.");
         InterlockedOr(&hook_status, 4);
     }
     wchar_t current_original[MAX_PATH];
@@ -315,4 +283,4 @@ FARPROC *ResolveDwmExport(unsigned int ordinal) {
 }
 
 __declspec(dllexport) DWORD WINAPI OopzGuardStatus(void) { return (DWORD)hook_status; }
-__declspec(dllexport) const char * WINAPI OopzGuardVersion(void) { return "0.1.2 / oopz 0.88.41 x64"; }
+__declspec(dllexport) const char * WINAPI OopzGuardVersion(void) { return "0.2.0 / adaptive oopz x64"; }

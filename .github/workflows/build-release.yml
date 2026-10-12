@@ -34,13 +34,13 @@ jobs:
         run: ./ci/install-zig.ps1
       - name: Build DLL
         run: ./build.ps1
-      - name: Test directory loading and synthetic windows
+      - name: Test adaptive snapshots, directory loading and windows
         run: ./tests/run-ci.ps1 -ZigPath ./toolchain/zig-0.16.0/ziglang/zig.exe
-      - name: Verify exports and exact-version profile
+      - name: Verify exports and adaptive policy
         run: python ./tools/verify_build.py
       - name: Package tested release files
         run: |
-          $releaseVersion = '0.1.2'
+          $releaseVersion = '0.2.0'
           if ($env:GITHUB_REF.StartsWith('refs/tags/v')) { $releaseVersion = $env:GITHUB_REF_NAME.Substring(1) }
           python ./tools/package_release.py --version $releaseVersion --commit "$env:BUILD_COMMIT"
           if ($LASTEXITCODE -ne 0) { throw 'Packaging failed.' }

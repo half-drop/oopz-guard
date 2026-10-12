@@ -1,4 +1,4 @@
-/* Generated from src/dwmapi.def by tools/generate_profile.py. */
+/* Generated from src/dwmapi.def by tools/generate_dwm_exports.py. */
 #pragma once
 #include <stddef.h>
 #define DWM_EXPORT_FIRST_ORDINAL 100u

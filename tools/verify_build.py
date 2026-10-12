@@ -6,7 +6,6 @@ import sys
 from hashlib import sha256
 from pathlib import Path
 
-from inspect_aot_objects import dart_string_hash
 from inspect_pe import PE
 
 
@@ -61,15 +60,6 @@ def header_integer(text, name):
     return int(match[1])
 
 
-def header_hash(text, name):
-    match = re.search(rf"\b{name}\s*\[32\]\s*=\s*\{{([^}}]+)\}}\s*;", text)
-    require(match is not None, f"Header SHA256 array missing: {name}")
-    tokens = [value.strip() for value in match[1].split(",")]
-    require(len(tokens) == 32 and all(re.fullmatch(r"0x[0-9a-fA-F]{2}", token)
-                                    for token in tokens), f"Invalid SHA256 array: {name}")
-    return bytes(int(token, 16) for token in tokens).hex()
-
-
 def validate_dwm_name_table(header, expected):
     """Check the explicit name/NULL table against every fixed proxy ordinal."""
     require(header_integer(header, "DWM_EXPORT_FIRST_ORDINAL") == 100,
@@ -93,63 +83,12 @@ def validate_dwm_name_table(header, expected):
     return mapping
 
 
-def validate_profile(header, profile):
-    require(isinstance(profile, dict), "Profile JSON must be an object")
-    for name in ("source_sha256", "patched_sha256"):
-        require(isinstance(profile.get(name), str) and
-                re.fullmatch(r"[0-9a-f]{64}", profile[name]) is not None,
-                f"Invalid profile field: {name}")
-    require(isinstance(profile.get("version"), str) and
-            re.fullmatch(r"\d+(?:\.\d+){2,3}", profile["version"]) is not None,
-            "Invalid profile version")
-    require(type(profile.get("size")) is int and profile["size"] > 0,
-            "Invalid profile source size")
-    require(header_integer(header, "PROFILE_SIZE") == profile["size"],
-            "Header/JSON source size mismatch")
-    require(header_hash(header, "profile_sha256") == profile["source_sha256"],
-            "Header/JSON source SHA256 mismatch")
-    require(header_hash(header, "profile_patched_sha256") == profile["patched_sha256"],
-            "Header/JSON patched SHA256 mismatch")
-    patches = profile.get("patches")
-    require(isinstance(patches, list) and len(patches) > 0, "Missing profile patches")
-    require(header_integer(header, "PROFILE_PATCH_COUNT") == len(patches),
-            "Header/JSON patch count mismatch")
-    array = re.search(r"\bprofile_patches\s*\[\]\s*=\s*\{(.*?)\};", header, re.DOTALL)
-    require(array is not None, "Header patch table missing")
-    entry = re.compile(r'\{\s*(\d+)[uUlL]*\s*,\s*"([^"\\]*)"\s*,\s*"([^"\\]*)"\s*\}\s*,?')
-    parsed = [(int(match[1]), match[2], match[3]) for match in entry.finditer(array[1])]
-    require(not entry.sub("", array[1]).strip(), "Unexpected header patch table syntax")
-    require(len(parsed) == len(patches), "Header patch entry count mismatch")
-    offsets = set()
-    for index, (header_entry, patch) in enumerate(zip(parsed, patches)):
-        require(isinstance(patch, dict), f"Invalid patch object at index {index}")
-        require(type(patch.get("offset")) is int, f"Invalid patch offset at index {index}")
-        before, after = patch.get("before"), patch.get("after")
-        require(isinstance(before, str) and isinstance(after, str) and
-                before.isascii() and after.isascii() and
-                0 < len(before) == len(after) and before != after,
-                f"Patch strings must be different ASCII strings of equal length at index {index}")
-        require(header_entry == (patch["offset"], before, after),
-                f"Header/JSON patch entry mismatch at index {index}")
-        require(16 <= patch["offset"] <= profile["size"] - len(before),
-                f"Patch exceeds source bounds at index {index}")
-        require(patch["offset"] not in offsets, "Duplicate patch offset")
-        offsets.add(patch["offset"])
-        require(type(patch.get("new_hash")) is int and
-                patch["new_hash"] == dart_string_hash(after),
-                f"Incorrect Dart replacement string hash at index {index}")
-    cache = re.search(r'^#define\s+PROFILE_CACHE_FILENAME\s+L"([^"\\]+)"\s*$',
-                      header, re.MULTILINE)
-    expected_cache = f'snapshot-{profile["version"]}-{profile["patched_sha256"][:16]}.so'
-    require(cache is not None and cache[1] == expected_cache,
-            "Header cache filename does not match profile version/hash")
-
-
 def main():
     expected = definition_exports(read_text("src/dwmapi.def"))
     name_table = validate_dwm_name_table(read_text("src/dwmapi_names.h"), expected)
-    profile = json.loads(read_text("research/profile.json"))
-    validate_profile(read_text("src/profile.h"), profile)
+    policy = header_integer(read_text("src/snapshot_patch.h"), "SNAPSHOT_POLICY_VERSION")
+    require(policy == 2, "Unexpected adaptive snapshot policy")
+    require(not (ROOT / "src/profile.h").exists(), "Obsolete client whitelist must not ship")
     dll = PE(required_path("dist/dwmapi.dll"))
     require(dll.machine == 0x8664 and dll.bits == 64, "DLL must be an AMD64 PE32+ binary")
     exports = dll.exports()
@@ -182,13 +121,10 @@ def main():
         "diagnostic_exports": sorted(DIAGNOSTIC_NAMES),
         "pe_forwarded_exports": 0,
         "definition_export_mapping_matches": True,
-        "profile_header_json_matches": True,
-        "profile_version": profile["version"],
-        "supported_source_aot_bytes": profile["size"],
-        "supported_source_aot_sha256": profile["source_sha256"],
-        "expected_patched_aot_sha256": profile["patched_sha256"],
-        "profile_patch_count": len(profile["patches"]),
-        "verification_scope": "Standalone build structure and checked-in profile consistency",
+        "adaptive_snapshot_policy": policy,
+        "client_version_whitelist": False,
+        "fixed_patch_offsets": False,
+        "verification_scope": "Standalone DLL structure, DWM forwarding ABI and adaptive policy; behavior checked by CI tests",
         "not_verified": ["Oopz desktop UI", "voice or screen-sharing behavior",
                          "installed Oopz AOT content", "real Flutter AOT parsing",
                          "ordinal-only DWM export compatibility across different Windows versions"],

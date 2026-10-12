@@ -1,12 +1,11 @@
-OopzGuard v0.1.2 正式版
-Guard 系列：Windows Oopz 去广告与 OBS 窗口过滤工具
+OopzGuard v0.2.0 正式版
+Guard 系列：Windows Oopz 自适应去广告与 OBS 窗口过滤工具
 
-兼容范围
-Windows x64，仅支持 Oopz 0.88.41 的指定原始 data\app.so。
-大小必须为 31,851,424 字节，SHA256 必须为：
-8384ee1a0a3c39194755034328c34ec9dc1f76842d38144cc78b43c3153cc8aa
-仅版本号相同不代表兼容。当前官网新版及其他版本尚未适配、验证。
-文件不匹配或临时副本准备失败时，保留原快照与原窗口查询。
+工作方式
+Windows x64 Oopz，启动时自动识别广告请求、数据字段和素材地址。
+不绑定客户端版本号、固定文件大小、文件指纹或补丁位置。
+更新后的下次启动自动重新扫描，无需为普通版本更新重新编译。
+未知结构或临时副本准备失败时使用原始快照；OBS 过滤独立工作。
 
 安装
 1. 解压完整 Windows 安装包，从系统托盘完全退出 Oopz。
@@ -17,19 +16,18 @@ Windows x64，仅支持 Oopz 0.88.41 的指定原始 data\app.so。
 DLL 应放在客户端目录，不要放入 Windows 系统目录。
 
 查看状态
-资源管理器打开 %TEMP%\OopzGuard，查看最新 oopz-进程号.log。
-Exact AOT matched 表示快照匹配，后续日志分别说明广告处理与窗口过滤状态。
-UNSUPPORTED_OR_IO_ERROR 表示版本不匹配或临时文件准备失败，修改未启用。
-匹配后的快照副本约 32 MB，加载前核验 SHA256。
-匹配记录本身不能证明登录后的所有广告已消失。
+打开 %TEMP%\OopzGuard，查看最新 oopz-进程号.log。
+Adaptive snapshot 显示广告请求、字段、素材的命中数量。
+patched=0 表示未发现符合规则的内容。
+SNAPSHOT_UNRECOGNIZED_OR_IO_ERROR 表示无法识别或准备副本，使用原始快照。
+OBS 过滤状态会单独记录。BlockAds=0 表示按设置关闭广告处理。
 
 功能与设置
-在临时副本中等长改写两条广告请求路径与三个发现页字段，并更新 Dart 字符串哈希。
-OBS 过滤只影响该 Oopz 进程经 Flutter/Dart 动态解析的已实现 Win32 窗口查询，
-识别 obs.exe、obs32.exe、obs64.exe、yyobs.exe 与 obs-studio 目录路径。
-其他直播软件、改名软件与独立进程枚举途径未宣称覆盖。
-OBS 可能同时不出现在 Oopz 的屏幕共享窗口列表中。
-系统 DWM 命名接口转发到原 DLL；仅序号导出的跨 Windows 兼容性尚未全面验证。
+在临时副本中等长改写广告字符串并更新 Dart 字符串哈希，保持对象布局。
+自动适应文件位置、类编号、单字节/双字节编码和三种哈希布局变化。
+覆盖明确广告请求、广告数据字段及广告目录素材，保留普通横幅与通用推荐。
+OBS 过滤识别 obs.exe、obs32.exe、obs64.exe、yyobs.exe 及 obs-studio 路径。
+OBS 可能不出现在 Oopz 的屏幕共享窗口列表中。
 可选：将 oopz_guard.ini.example 复制为 DLL 同目录的 oopz_guard.ini：
 [Guard]
 BlockAds=1
@@ -37,8 +35,8 @@ HideOBSWindows=1
 1 为开启，0 为关闭；默认无需配置文件。修改后完全退出并重启 Oopz。
 
 客户端更新
-本版不自动适配新版。更新后检查兼容范围与日志，不匹配会保留原始行为。
-官方更新若移除了同目录 DLL，需要在确认适配后重新放置。
+下次启动自动扫描新快照；官方更新若移除了 DLL，重新放置即可。
+框架结构彻底变化或广告命名改变仍可能需要更新规则。
 
 卸载与回滚
 完全退出 Oopz，移除添加的 dwmapi.dll；如创建过 oopz_guard.ini，也可删除。
@@ -46,9 +44,11 @@ HideOBSWindows=1
 关闭所有使用本 DLL 的进程后，可选删除 %TEMP%\OopzGuard 临时缓存。
 
 验证范围
-本次构建记录见 build-info.json，下载校验见 Release 的 SHA256SUMS.txt，
-包内文件校验见 FILE_HASHES.txt。既有本地受控测试范围见 VALIDATION.md。
-登录后广告界面、主播模式、语音与屏幕共享尚未完整人工验收。
+当前官网客户端静态命中 25 处：2 条请求、11 个字段、12 条素材地址。
+真实引擎读取和跨结构回归通过，详细测试范围见 VALIDATION.md。
+登录后的广告展示、语音和共享流程尚未完整人工验收。
+本次构建记录见 build-info.json，下载附件校验见 SHA256SUMS.txt，
+包内文件校验见 FILE_HASHES.txt；发行文件校验不限制客户端版本。
 
 项目与下载
 OopzGuard：https://github.com/half-drop/oopz-guard

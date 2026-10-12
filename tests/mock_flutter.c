@@ -2,7 +2,6 @@
 #include <windows.h>
 #include <stdint.h>
 #include <string.h>
-#include "../src/profile.h"
 
 typedef struct {
     const wchar_t *assets, *icu, *aot;
